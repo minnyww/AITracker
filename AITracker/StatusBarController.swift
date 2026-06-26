@@ -1,0 +1,48 @@
+import Cocoa
+import SwiftUI
+import Combine
+
+@MainActor
+final class StatusBarController {
+    private var statusItem: NSStatusItem?
+    private var hostingView: NSHostingView<StackedBarView>?
+    private var cancellables = Set<AnyCancellable>()
+
+    private let viewModel: UsageViewModel
+
+    init(viewModel: UsageViewModel) {
+        self.viewModel = viewModel
+    }
+
+    func setup() {
+        statusItem = NSStatusBar.system.statusItem(withLength: 50)
+
+        guard let button = statusItem?.button else { return }
+
+        let barView = StackedBarView(services: viewModel.usageData)
+        let hosting = NSHostingView(rootView: barView)
+        hosting.frame = button.bounds.insetBy(dx: 3, dy: 0)
+        hosting.autoresizingMask = [.width, .height]
+        button.addSubview(hosting)
+        self.hostingView = hosting
+
+        viewModel.$usageData
+            .combineLatest(viewModel.$lastError)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] data, error in
+                self?.hostingView?.rootView = StackedBarView(
+                    services: data,
+                    hasError: error != nil
+                )
+            }
+            .store(in: &cancellables)
+
+        button.target = self
+        button.action = #selector(statusItemClicked)
+    }
+
+    @objc private func statusItemClicked() {
+        guard let button = statusItem?.button else { return }
+        PopoverController.shared.toggle(relativeTo: button, viewModel: viewModel)
+    }
+}
